@@ -1,0 +1,254 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  timeZone  String   @default("UTC")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Calendar preferences
+  preferences Json? // { noMornings: boolean, noEvenings: boolean, preferredHours: string[] }
+  
+  // Relationships
+  ownedMeetings     Meeting[]       @relation("MeetingOwner")
+  participantIn     MeetingParticipant[]
+  calendarEvents    CalendarEvent[]
+  agentSessions     AgentSession[]
+  sentNegotiations  Negotiation[]   @relation("NegotiationSender")
+  receivedNegotiations Negotiation[] @relation("NegotiationReceiver")
+
+  @@map("users")
+}
+
+model Meeting {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  duration    Int      // in minutes
+  priority    Priority @default(MEDIUM)
+  status      MeetingStatus @default(PENDING)
+  
+  // Scheduling details
+  scheduledAt DateTime?
+  timeZone    String?
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Owner
+  ownerId     String
+  owner       User     @relation("MeetingOwner", fields: [ownerId], references: [id])
+  
+  // Relationships
+  participants    MeetingParticipant[]
+  negotiations    Negotiation[]
+  agentSessions   AgentSession[]
+  rescheduledMeetings RescheduledMeeting[]
+
+  @@map("meetings")
+}
+
+model MeetingParticipant {
+  id        String   @id @default(cuid())
+  meetingId String
+  userId    String
+  status    ParticipantStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+  
+  @@unique([meetingId, userId])
+  @@map("meeting_participants")
+}
+
+model CalendarEvent {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  priority    Priority @default(MEDIUM)
+  canReschedule Boolean @default(true)
+  
+  // Owner
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // If this event was rescheduled
+  rescheduledFrom RescheduledMeeting[]
+
+  @@map("calendar_events")
+}
+
+model AgentSession {
+  id        String   @id @default(cuid())
+  meetingId String
+  userId    String   // Which user this agent represents
+  agentType AgentType
+  status    AgentStatus @default(ACTIVE)
+  
+  // Agent state
+  availableSlots Json? // Array of available time slots
+  preferences    Json? // Agent-specific preferences
+  
+  // Relationships
+  meeting       Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user          User    @relation(fields: [userId], references: [id])
+  negotiations  Negotiation[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("agent_sessions")
+}
+
+model Negotiation {
+  id          String   @id @default(cuid())
+  meetingId   String
+  senderId    String   // User who sent the negotiation
+  receiverId  String   // User who received the negotiation
+  agentSessionId String
+  
+  // Negotiation content
+  message     String
+  proposedSlots Json?  // Array of proposed time slots
+  action      NegotiationAction
+  status      NegotiationStatus @default(PENDING)
+  
+  // AI generated content
+  aiGenerated Boolean @default(true)
+  
+  // Relationships
+  meeting       Meeting      @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  sender        User         @relation("NegotiationSender", fields: [senderId], references: [id])
+  receiver      User         @relation("NegotiationReceiver", fields: [receiverId], references: [id])
+  agentSession  AgentSession @relation(fields: [agentSessionId], references: [id])
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("negotiations")
+}
+
+model RescheduledMeeting {
+  id              String   @id @default(cuid())
+  meetingId       String
+  originalEventId String
+  
+  // Original details
+  originalTitle   String
+  originalStart   DateTime
+  originalEnd     DateTime
+  
+  // New details
+  newStart        DateTime
+  newEnd          DateTime
+  reason          String
+  
+  // Relationships
+  meeting         Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  originalEvent   CalendarEvent @relation(fields: [originalEventId], references: [id])
+  
+  createdAt       DateTime @default(now())
+
+  @@map("rescheduled_meetings")
+}
+
+model EmailLog {
+  id        String   @id @default(cuid())
+  to        String[]
+  subject   String
+  content   String
+  emailType EmailType
+  status    EmailStatus @default(SENT)
+  
+  // Related entities
+  meetingId String?
+  
+  // Email metadata
+  resendId  String?
+  sentAt    DateTime @default(now())
+
+  @@map("email_logs")
+}
+
+// Enums
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MeetingStatus {
+  PENDING
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+}
+
+enum ParticipantStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  TENTATIVE
+}
+
+enum AgentType {
+  COORDINATOR  // Main SchedulAI agent
+  PARTICIPANT  // Individual participant agents
+}
+
+enum AgentStatus {
+  ACTIVE
+  NEGOTIATING
+  COMPLETED
+  FAILED
+}
+
+enum NegotiationAction {
+  PROPOSE_SLOT
+  RESCHEDULE_REQUEST
+  ACCEPT_SLOT
+  DECLINE_SLOT
+  COUNTER_PROPOSAL
+}
+
+enum NegotiationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum EmailType {
+  MEETING_INVITATION
+  RESCHEDULE_REQUEST
+  CONFIRMATION
+  CANCELLATION
+  REMINDER
+}
+
+enum EmailStatus {
+  SENT
+  FAILED
+  PENDING
+}
