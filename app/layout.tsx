@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "SchedulAI - Autonomous Meeting Coordinator",
   description: "AI-powered meeting scheduling with autonomous agent negotiation",
-    generator: 'v0.dev'
+   
 }
 
 export default function RootLayout({
